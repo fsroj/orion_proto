@@ -38,8 +38,12 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
   FlutterTts? flutterTts; // Cambia a nullable
   bool _isSpeaking = false;
   bool _isLoading = false; // Nuevo estado para indicar carga
+  bool _showVolumeSlider = false;
+  double _ttsVolume = 1.0;
 
   final Logger _logger = Logger('WikipediaAssistant');
+
+  List<Map<String, String>> _availableVoices = [];
 
   @override
   void initState() {
@@ -52,7 +56,7 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
     flutterTts = FlutterTts();
     await flutterTts!.setLanguage("es-ES");
     await flutterTts!.setSpeechRate(0.5);
-    await flutterTts!.setVolume(1.0);
+    await flutterTts!.setVolume(_ttsVolume);
     await flutterTts!.setPitch(1.0);
 
     flutterTts!.setStartHandler(() {
@@ -79,6 +83,31 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
       }
       _logger.severe("TTS Error: $msg");
     });
+
+    // Obtener y mostrar voces disponibles
+    final voices = await flutterTts!.getVoices;
+    List<Map<String, String>> parsedVoices = [];
+    print("Voces disponibles:");
+    for (var voice in voices) {
+      if (voice is Map) {
+        final voiceMap = voice.map((key, value) => MapEntry(key.toString(), value.toString()));
+        parsedVoices.add(voiceMap);
+        print(voiceMap); // Imprime el mapa completo
+      } else {
+        print(voice);
+      }
+    }
+    setState(() {
+      _availableVoices = parsedVoices;
+    });
+
+    // Selecciona la voz masculina si está disponible (puedes ajustar el filtro)
+    for (var voice in parsedVoices) {
+      if (voice['locale'] == 'es-ES' && (voice['name']?.toLowerCase().contains('edu') ?? false)) {
+        await flutterTts!.setVoice(voice);
+        break;
+      }
+    }
   }
 
   Future<void> _searchWikipedia(String query) async {
@@ -290,6 +319,65 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
               ],
             ),
             const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.settings),
+                  tooltip: 'Configuración de voz',
+                  onPressed: () {
+                    setState(() {
+                      _showVolumeSlider = !_showVolumeSlider;
+                    });
+                  },
+                ),
+              ],
+            ),
+            if (_showVolumeSlider)
+              Row(
+                children: [
+                  const Icon(Icons.volume_up),
+                  Expanded(
+                    child: Slider(
+                      value: _ttsVolume,
+                      min: 0.0,
+                      max: 1.0,
+                      divisions: 10,
+                      label: '${(_ttsVolume * 100).toInt()}%',
+                      onChanged: (value) async {
+                        setState(() {
+                          _ttsVolume = value;
+                        });
+                        if (flutterTts != null) {
+                          await flutterTts!.setVolume(_ttsVolume);
+                        }
+                      },
+                    ),
+                  ),
+                  Text('${(_ttsVolume * 100).toInt()}%'),
+                ],
+              ),
+            if (_availableVoices.isNotEmpty)
+              Container(
+                height: 200,
+                child: ListView(
+                  children: _availableVoices
+                      .where((v) =>
+                          (v['locale'] == 'es-ES' || v['locale'] == 'es-US' || v['locale'] == 'es-us') &&
+                          (v['name']?.contains('eed') == true || v['name']?.contains('eea') == true))
+                      .map((v) => ListTile(
+                            title: Text('${v['name']} (${v['locale']})'),
+                            trailing: ElevatedButton(
+                              child: const Text('Probar'),
+                              onPressed: () async {
+                                await flutterTts!.setVoice(v);
+                                await _speakText("Esta es la voz ${v['name']} para español.");
+                              },
+                            ),
+                          ))
+                      .toList(),
+                ),
+              ),
           ],
         ),
       ),

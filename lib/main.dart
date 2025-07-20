@@ -40,10 +40,9 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
   bool _isLoading = false; // Nuevo estado para indicar carga
   bool _showVolumeSlider = false;
   double _ttsVolume = 1.0;
+  bool _isPaused = false;
 
   final Logger _logger = Logger('WikipediaAssistant');
-
-  List<Map<String, String>> _availableVoices = [];
 
   @override
   void initState() {
@@ -71,6 +70,7 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
       if (mounted) {
         setState(() {
           _isSpeaking = false;
+          _isPaused = false;
         });
       }
     });
@@ -79,6 +79,7 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
       if (mounted) {
         setState(() {
           _isSpeaking = false;
+          _isPaused = false;
         });
       }
       _logger.severe("TTS Error: $msg");
@@ -97,13 +98,9 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
         print(voice);
       }
     }
-    setState(() {
-      _availableVoices = parsedVoices;
-    });
-
-    // Selecciona la voz masculina si está disponible (puedes ajustar el filtro)
+    // Selecciona la voz masculina si está disponible
     for (var voice in parsedVoices) {
-      if (voice['locale'] == 'es-ES' && (voice['name']?.toLowerCase().contains('edu') ?? false)) {
+      if (voice['name'] == 'es-es-x-eed-local' && voice['locale'] == 'es-ES') {
         await flutterTts!.setVoice(voice);
         break;
       }
@@ -185,8 +182,18 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
       if (mounted) {
         setState(() {
           _isSpeaking = false;
+          _isPaused = false;
         });
       }
+    }
+  }
+
+  Future<void> _pauseSpeaking() async {
+    if (flutterTts != null) {
+      await flutterTts!.pause();
+      setState(() {
+        _isPaused = true;
+      });
     }
   }
 
@@ -294,10 +301,31 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
               children: [
                 ElevatedButton.icon(
                   onPressed: !_isLoading
-                      ? (_isSpeaking ? _stopSpeaking : () => _speakText(limpiarWikiTexto(_wikiContent)))
+                      ? () async {
+                          if (_isSpeaking && !_isPaused) {
+                            await _pauseSpeaking();
+                          } else if (_isSpeaking && _isPaused) {
+                            // Reproduce desde el inicio
+                            setState(() {
+                              _isPaused = false;
+                              _isSpeaking = false;
+                            });
+                            await _speakText(limpiarWikiTexto(_wikiContent));
+                          } else {
+                            await _speakText(limpiarWikiTexto(_wikiContent));
+                          }
+                        }
                       : null,
-                  icon: Icon(_isSpeaking ? Icons.stop : Icons.volume_up),
-                  label: Text(_isSpeaking ? 'Detener lectura' : 'Leer en voz alta'),
+                  icon: Icon(
+                    _isSpeaking
+                        ? (_isPaused ? Icons.play_arrow : Icons.pause)
+                        : Icons.volume_up,
+                  ),
+                  label: Text(
+                    _isSpeaking
+                        ? (_isPaused ? 'Reanudar lectura' : 'Pausar lectura')
+                        : 'Leer en voz alta',
+                  ),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     shape: RoundedRectangleBorder(
@@ -356,27 +384,6 @@ class WikipediaAssistantState extends State<WikipediaAssistant> {
                   ),
                   Text('${(_ttsVolume * 100).toInt()}%'),
                 ],
-              ),
-            if (_availableVoices.isNotEmpty)
-              Container(
-                height: 200,
-                child: ListView(
-                  children: _availableVoices
-                      .where((v) =>
-                          (v['locale'] == 'es-ES' || v['locale'] == 'es-US' || v['locale'] == 'es-us') &&
-                          (v['name']?.contains('eed') == true || v['name']?.contains('eea') == true))
-                      .map((v) => ListTile(
-                            title: Text('${v['name']} (${v['locale']})'),
-                            trailing: ElevatedButton(
-                              child: const Text('Probar'),
-                              onPressed: () async {
-                                await flutterTts!.setVoice(v);
-                                await _speakText("Esta es la voz ${v['name']} para español.");
-                              },
-                            ),
-                          ))
-                      .toList(),
-                ),
               ),
           ],
         ),
